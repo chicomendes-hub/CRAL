@@ -125,6 +125,11 @@ const Members = ({ userTelegramId }) => {
                         <Shield className="w-3 h-3 mr-1" />
                         Admin
                       </span>
+                    ) : member.role === 'event_manager' ? (
+                      <span className="badge badge-warning flex items-center w-fit">
+                        <User className="w-3 h-3 mr-1" />
+                        Gestore Eventi
+                      </span>
                     ) : (
                       <span className="badge badge-info flex items-center w-fit">
                         <User className="w-3 h-3 mr-1" />

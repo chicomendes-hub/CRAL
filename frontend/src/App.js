@@ -9,6 +9,7 @@ import Bookings from '@/pages/Bookings';
 import Members from '@/pages/Members';
 import Fees from '@/pages/Fees';
 import Notifications from '@/pages/Notifications';
+import Groups from '@/pages/Groups';
 import { Toaster } from '@/components/ui/sonner';
 
 function App() {
@@ -86,6 +87,14 @@ function App() {
             element={
               isAuthenticated ? 
               <Notifications userTelegramId={userTelegramId} /> : 
+              <Navigate to="/login" />
+            }
+          />
+          <Route
+            path="/groups"
+            element={
+              isAuthenticated ? 
+              <Groups userTelegramId={userTelegramId} /> : 
               <Navigate to="/login" />
             }
           />

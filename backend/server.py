@@ -35,6 +35,7 @@ api_router = APIRouter(prefix="/api")
 # Enums
 class UserRole(str, Enum):
     ADMIN = "admin"
+    EVENT_MANAGER = "event_manager"
     MEMBER = "member"
 
 class PollType(str, Enum):
@@ -86,6 +87,7 @@ class Event(BaseModel):
     created_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     participants: List[int] = []  # telegram_ids
+    managers: List[int] = []  # telegram_ids of event managers
 
 class Booking(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -116,6 +118,15 @@ class Notification(BaseModel):
     sent_by: str
     sent_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+class UserGroup(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    description: Optional[str] = None
+    members: List[int] = []  # telegram_ids
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 # Request/Response Models
 class PollCreate(BaseModel):
     title: str
@@ -139,11 +150,20 @@ class BookingCreate(BaseModel):
 class NotificationCreate(BaseModel):
     message: str
     send_to_all: bool = True
+    group_ids: List[str] = []  # IDs of groups to send to
 
 class FeeCreate(BaseModel):
     user_telegram_id: int
     amount: float
     year: int
+
+class UserGroupCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    member_telegram_ids: List[int] = []
+
+class EventManagerAssign(BaseModel):
+    manager_telegram_ids: List[int]
 
 # Helper Functions
 async def get_user_by_telegram_id(telegram_id: int) -> Optional[User]:
@@ -159,6 +179,28 @@ async def get_user_by_telegram_id(telegram_id: int) -> Optional[User]:
 async def is_admin(telegram_id: int) -> bool:
     user = await get_user_by_telegram_id(telegram_id)
     return user and user.role == UserRole.ADMIN
+
+async def is_event_manager(telegram_id: int, event_id: str) -> bool:
+    """Check if user is manager of specific event"""
+    user = await get_user_by_telegram_id(telegram_id)
+    if not user:
+        return False
+    
+    # Admins can manage all events
+    if user.role == UserRole.ADMIN:
+        return True
+    
+    # Check if user is assigned as manager for this event
+    event = await db.events.find_one({"id": event_id}, {"_id": 0})
+    if event and telegram_id in event.get('managers', []):
+        return True
+    
+    return False
+
+async def can_manage_events(telegram_id: int) -> bool:
+    """Check if user can manage events (admin or event_manager role)"""
+    user = await get_user_by_telegram_id(telegram_id)
+    return user and user.role in [UserRole.ADMIN, UserRole.EVENT_MANAGER]
 
 async def register_user(telegram_id: int, username: Optional[str], first_name: Optional[str], last_name: Optional[str]) -> User:
     existing_user = await get_user_by_telegram_id(telegram_id)
@@ -635,6 +677,73 @@ async def get_event(event_id: str):
     
     return event
 
+@api_router.patch("/events/{event_id}/managers")
+async def assign_event_managers(event_id: str, data: EventManagerAssign, telegram_id: int):
+    """Assign managers to an event (only admins)"""
+    if not await is_admin(telegram_id):
+        raise HTTPException(status_code=403, detail="Only admins can assign event managers")
+    
+    event = await db.events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    # Update managers
+    result = await db.events.update_one(
+        {"id": event_id},
+        {"$set": {"managers": data.manager_telegram_ids}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    return {"message": "Event managers updated", "managers": data.manager_telegram_ids}
+
+@api_router.delete("/events/{event_id}/participants/{participant_id}")
+async def remove_event_participant(event_id: str, participant_id: int, telegram_id: int):
+    """Remove participant from event (admins and event managers)"""
+    if not await is_event_manager(telegram_id, event_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    event = await db.events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    participants = event.get('participants', [])
+    if participant_id in participants:
+        participants.remove(participant_id)
+        await db.events.update_one(
+            {"id": event_id},
+            {"$set": {"participants": participants}}
+        )
+    
+    return {"message": "Participant removed"}
+
+@api_router.get("/events/{event_id}/participants")
+async def get_event_participants(event_id: str, telegram_id: int):
+    """Get detailed participant list (admins and event managers)"""
+    if not await is_event_manager(telegram_id, event_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    event = await db.events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    participant_ids = event.get('participants', [])
+    
+    # Get user details for participants
+    participants = []
+    for tid in participant_ids:
+        user = await get_user_by_telegram_id(tid)
+        if user:
+            participants.append({
+                "telegram_id": user.telegram_id,
+                "username": user.username,
+                "first_name": user.first_name,
+                "last_name": user.last_name
+            })
+    
+    return {"participants": participants, "total": len(participants)}
+
 # Booking endpoints
 @api_router.post("/bookings", response_model=Booking)
 async def create_booking(booking_data: BookingCreate, telegram_id: int):
@@ -755,11 +864,34 @@ async def send_notification(notification_data: NotificationCreate, telegram_id: 
     
     bot = Bot(token=TELEGRAM_TOKEN)
     
-    # Get all active users
-    users = await db.users.find({"is_active": True}, {"_id": 0}).to_list(1000)
     sent_to = []
     
-    for user in users:
+    if notification_data.send_to_all:
+        # Get all active users
+        users = await db.users.find({"is_active": True}, {"_id": 0}).to_list(1000)
+        target_users = users
+    else:
+        # Get users from specified groups
+        target_users = []
+        for group_id in notification_data.group_ids:
+            group = await db.user_groups.find_one({"id": group_id}, {"_id": 0})
+            if group:
+                for member_id in group.get('members', []):
+                    user = await get_user_by_telegram_id(member_id)
+                    if user and user.is_active:
+                        target_users.append({
+                            'telegram_id': user.telegram_id
+                        })
+    
+    # Remove duplicates
+    unique_ids = set()
+    unique_users = []
+    for user in target_users:
+        if user['telegram_id'] not in unique_ids:
+            unique_ids.add(user['telegram_id'])
+            unique_users.append(user)
+    
+    for user in unique_users:
         try:
             await bot.send_message(
                 chat_id=user['telegram_id'],
@@ -781,7 +913,114 @@ async def send_notification(notification_data: NotificationCreate, telegram_id: 
     doc['sent_at'] = doc['sent_at'].isoformat()
     await db.notifications.insert_one(doc)
     
-    return {"message": f"Notification sent to {len(sent_to)} users"}
+    return {"message": f"Notification sent to {len(sent_to)} users", "count": len(sent_to)}
+
+# User Groups endpoints
+@api_router.post("/groups", response_model=UserGroup)
+async def create_group(group_data: UserGroupCreate, telegram_id: int):
+    """Create a new user group (admins only)"""
+    if not await is_admin(telegram_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    user = await get_user_by_telegram_id(telegram_id)
+    
+    group = UserGroup(
+        name=group_data.name,
+        description=group_data.description,
+        members=group_data.member_telegram_ids,
+        created_by=user.id
+    )
+    
+    doc = group.model_dump()
+    doc['created_at'] = doc['created_at'].isoformat()
+    
+    await db.user_groups.insert_one(doc)
+    return group
+
+@api_router.get("/groups", response_model=List[UserGroup])
+async def get_groups(telegram_id: int):
+    """Get all user groups (admins only)"""
+    if not await is_admin(telegram_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    groups = await db.user_groups.find({}, {"_id": 0}).to_list(100)
+    
+    for group in groups:
+        if isinstance(group.get('created_at'), str):
+            group['created_at'] = datetime.fromisoformat(group['created_at'])
+    
+    return groups
+
+@api_router.get("/groups/{group_id}", response_model=UserGroup)
+async def get_group(group_id: str, telegram_id: int):
+    """Get group details (admins only)"""
+    if not await is_admin(telegram_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    group = await db.user_groups.find_one({"id": group_id}, {"_id": 0})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    if isinstance(group.get('created_at'), str):
+        group['created_at'] = datetime.fromisoformat(group['created_at'])
+    
+    return group
+
+@api_router.patch("/groups/{group_id}/members")
+async def update_group_members(group_id: str, member_telegram_ids: List[int], telegram_id: int):
+    """Update group members (admins only)"""
+    if not await is_admin(telegram_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await db.user_groups.update_one(
+        {"id": group_id},
+        {"$set": {"members": member_telegram_ids}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    return {"message": "Group members updated", "count": len(member_telegram_ids)}
+
+@api_router.delete("/groups/{group_id}")
+async def delete_group(group_id: str, telegram_id: int):
+    """Delete a group (admins only)"""
+    if not await is_admin(telegram_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await db.user_groups.delete_one({"id": group_id})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    return {"message": "Group deleted"}
+
+@api_router.get("/groups/{group_id}/members")
+async def get_group_members(group_id: str, telegram_id: int):
+    """Get detailed member list of a group (admins only)"""
+    if not await is_admin(telegram_id):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    group = await db.user_groups.find_one({"id": group_id}, {"_id": 0})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    member_ids = group.get('members', [])
+    
+    # Get user details for members
+    members = []
+    for tid in member_ids:
+        user = await get_user_by_telegram_id(tid)
+        if user:
+            members.append({
+                "telegram_id": user.telegram_id,
+                "username": user.username,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role
+            })
+    
+    return {"members": members, "total": len(members)}
 
 # Statistics
 @api_router.get("/statistics")

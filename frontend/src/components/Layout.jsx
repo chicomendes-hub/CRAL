@@ -9,7 +9,8 @@ import {
   CreditCard, 
   Bell, 
   LogOut,
-  Bot
+  Bot,
+  UsersRound
 } from 'lucide-react';
 
 const Layout = ({ children, userTelegramId }) => {
@@ -22,6 +23,7 @@ const Layout = ({ children, userTelegramId }) => {
     { path: '/events', label: 'Eventi', icon: Calendar },
     { path: '/bookings', label: 'Prenotazioni', icon: Ticket },
     { path: '/members', label: 'Membri', icon: Users },
+    { path: '/groups', label: 'Gruppi', icon: UsersRound },
     { path: '/fees', label: 'Quote', icon: CreditCard },
     { path: '/notifications', label: 'Notifiche', icon: Bell }
   ];

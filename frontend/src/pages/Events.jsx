@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import Layout from '@/components/Layout';
-import { Plus, Trash2, Users as UsersIcon, MapPin } from 'lucide-react';
+import EventParticipants from '@/components/EventParticipants';
+import { Plus, Trash2, Users as UsersIcon, MapPin, Eye } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -11,6 +12,8 @@ const Events = ({ userTelegramId }) => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [showParticipants, setShowParticipants] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -150,16 +153,29 @@ const Events = ({ userTelegramId }) => {
               </div>
               
               <div className="pt-4 border-t border-gray-100">
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-gradient-to-r from-purple-500 to-indigo-600 h-2 rounded-full transition-all"
-                    style={{
-                      width: event.max_participants 
-                        ? `${Math.min((event.participants?.length || 0) / event.max_participants * 100, 100)}%`
-                        : '0%'
-                    }}
-                  />
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-gradient-to-r from-purple-500 to-indigo-600 h-2 rounded-full transition-all"
+                      style={{
+                        width: event.max_participants 
+                          ? `${Math.min((event.participants?.length || 0) / event.max_participants * 100, 100)}%`
+                          : '0%'
+                      }}
+                    />
+                  </div>
                 </div>
+                <button
+                  onClick={() => {
+                    setSelectedEvent(event);
+                    setShowParticipants(true);
+                  }}
+                  className="btn-secondary w-full text-sm py-2 mt-2 flex items-center justify-center"
+                  data-testid="view-participants-button"
+                >
+                  <Eye className="w-4 h-4 mr-2" />
+                  Gestisci Partecipanti
+                </button>
               </div>
             </div>
           ))}
@@ -250,6 +266,19 @@ const Events = ({ userTelegramId }) => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Event Participants Modal */}
+      {showParticipants && selectedEvent && (
+        <EventParticipants
+          event={selectedEvent}
+          onClose={() => {
+            setShowParticipants(false);
+            setSelectedEvent(null);
+            loadEvents();
+          }}
+          userTelegramId={userTelegramId}
+        />
       )}
     </Layout>
   );
