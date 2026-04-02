@@ -316,12 +316,16 @@ Lo script:
 
 3. Installa le dipendenze Python:
    ```bash
-   pip install -r requirements.txt
+   pip install -r requirements.local.txt
    ```
    o su Mac/Linux:
    ```bash
-   pip3 install -r requirements.txt
+   pip3 install -r requirements.local.txt
    ```
+
+   ⚠️ **IMPORTANTE**: Usa `requirements.local.txt` NON `requirements.txt`
+   
+   Il file `requirements.local.txt` contiene solo le dipendenze necessarie per l'installazione locale, senza librerie interne di Emergent.
 
 4. Aspetta che finisca... ci vorranno 2-3 minuti ⏱️
 

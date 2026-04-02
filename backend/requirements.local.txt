@@ -1,0 +1,37 @@
+# ========================================
+# NOTA IMPORTANTE PER INSTALLAZIONE LOCALE
+# ========================================
+# 
+# Se vedi errori tipo:
+# "ERROR: No matching distribution found for emergentintegrations"
+# 
+# Questo è NORMALE! La libreria emergentintegrations è solo
+# disponibile nell'ambiente Emergent, non su PyPI pubblico.
+#
+# SOLUZIONE: Usa questo file requirements.local.txt invece:
+#   pip install -r requirements.local.txt
+#
+# ========================================
+
+fastapi==0.110.1
+uvicorn==0.25.0
+python-dotenv>=1.0.1
+pymongo==4.5.0
+motor==3.3.1
+pydantic>=2.6.4
+python-telegram-bot==22.7
+httpx>=0.28.1
+bcrypt==4.1.3
+passlib>=1.7.4
+python-jose>=3.3.0
+python-multipart>=0.0.9
+requests>=2.31.0
+
+# Testing (opzionale)
+pytest>=8.0.0
+
+# Linting (opzionale)
+black>=24.1.1
+isort>=5.13.2
+flake8>=7.0.0
+mypy>=1.8.0
