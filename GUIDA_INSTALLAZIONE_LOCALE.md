@@ -210,6 +210,31 @@ Dovresti vedere un numero di versione ✅
 
 ## 🔧 PARTE 3: CONFIGURA IL PROGETTO
 
+### ⚡ METODO RAPIDO: Usa lo Script Automatico
+
+**IMPORTANTE**: Puoi saltare i passi 3.2 e 3.3 usando lo script automatico!
+
+**Su Mac/Linux:**
+```bash
+cd cral-lecce-bot
+./scripts/setup_env.sh
+```
+
+**Su Windows:**
+```cmd
+cd cral-lecce-bot
+scripts\setup_env.bat
+```
+
+Lo script:
+- ✅ Copia automaticamente i file `.env.example` in `.env`
+- ✅ Ti chiede il Telegram Token e lo configura
+- ✅ Ti guida nei prossimi passi
+
+**Se preferisci configurare manualmente, continua con i passi 3.2 e 3.3 qui sotto.**
+
+---
+
 ### Passo 3.1: Crea il Tuo Bot su Telegram
 
 **IMPORTANTE**: Prima di continuare, devi creare il bot su Telegram!
